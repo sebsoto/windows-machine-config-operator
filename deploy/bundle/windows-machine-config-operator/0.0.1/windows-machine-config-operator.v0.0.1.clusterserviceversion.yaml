@@ -1,0 +1,187 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  name: windows-machine-config-operator.v0.0.1
+  namespace: placeholder
+  annotations:
+    alm-examples: >-
+      [{"apiVersion":"","kind":"WindowsMachineConfig","metadata":{"name":""},"spec":{}}]
+    categories: OpenShift Optional
+    certified: 'false'
+    createdAt: ''
+    description: >-
+      This operator allows for the addition of Windows nodes to an OpenShift
+      cluster.
+    containerImage: ''
+    support: ''
+    capabilities: Basic Install
+    repository: ''
+spec:
+  displayName: Windows Machine Config
+  description: |
+    ## About the managed application
+    ## About this Operator
+    ## Prerequisites for enabling this Operator
+  maturity: alpha
+  version: 0.0.1
+  replaces: ''
+  skips: []
+  minKubeVersion: ''
+  keywords: []
+  maintainers:
+    - name: ''
+      email: ''
+  provider:
+    name: Red Hat
+  labels: {}
+  selector:
+    matchLabels: {}
+  links:
+    - name: Repository
+      url: 'https://github.com/openshift/windows-machine-config-operator'
+  icon:
+    - base64data: ''
+      mediatype: ''
+  customresourcedefinitions:
+    owned:
+      - name: windowsmachineconfigs.wmc.openshift.io
+        displayName: WindowsMachineConfig
+        kind: WindowsMachineConfig
+        version: v1alpha1
+        description: Windows Machine Config
+        resources:
+          - version: v1
+            kind: Deployment
+          - version: v1
+            kind: Service
+          - version: v1
+            kind: ReplicaSet
+          - version: v1
+            kind: Pod
+          - version: v1
+            kind: Secret
+          - version: v1
+            kind: ConfigMap
+        specDescriptors: []
+        statusDescriptors: []
+    required: []
+  install:
+    strategy: deployment
+    spec:
+      permissions:
+        - serviceAccountName: windows-machine-config-operator
+          rules:
+          - apiGroups:
+            - ""
+            resources:
+            - pods
+            - services
+            - services/finalizers
+            - endpoints
+            - persistentvolumeclaims
+            - events
+            - configmaps
+            - secrets
+            verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+            - update
+            - watch
+          - apiGroups:
+            - apps
+            resources:
+            - deployments
+            - daemonsets
+            - replicasets
+            - statefulsets
+            verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+            - update
+            - watch
+          - apiGroups:
+            - monitoring.coreos.com
+            resources:
+            - servicemonitors
+            verbs:
+            - get
+            - create
+          - apiGroups:
+            - apps
+            resourceNames:
+            - windows-machine-config-operator
+            resources:
+            - deployments/finalizers
+            verbs:
+            - update
+          - apiGroups:
+            - ""
+            resources:
+            - pods
+            verbs:
+            - get
+          - apiGroups:
+            - apps
+            resources:
+            - replicasets
+            - deployments
+            verbs:
+            - get
+          - apiGroups:
+            - wmc.openshift.io
+            resources:
+            - '*'
+            verbs:
+            - create
+            - delete
+            - get
+            - list
+            - patch
+            - update
+            - watch
+      deployments:
+        - name: windows-machine-config-operator
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                name: windows-machine-config-operator
+            template:
+              metadata:
+                labels:
+                  name: windows-machine-config-operator
+              spec:
+                containers:
+                  image: 'quay.io/openshift/origin-windows-machine-config-operator:4.5'
+                  imagePullPolicy: Always
+                  name: windows-machine-config-operator
+                  env:
+                    - name: WATCH_NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: 'metadata.annotations[''olm.targetNamespaces'']'
+                    - name: POD_NAME
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.name
+                    - name: OPERATOR_NAME
+                      value: windows-machine-config-operator
+                nodeSelector:
+                  beta.kubernetes.io/os: linux
+                serviceAccountName: windows-machine-config-operator
+      clusterPermissions: []
+  installModes:
+    - type: OwnNamespace
+      supported: true
+    - type: SingleNamespace
+      supported: true
+    - type: MultiNamespace
+      supported: false
+    - type: AllNamespaces
+      supported: false

@@ -1,0 +1,15 @@
+apiVersion: v1
+data:
+  clusterServiceVersions: |
+    - <INSERT_CSV>
+  customResourceDefinitions: |
+    - <INSERT_CRD>
+  packages: |
+    - channels:
+      - currentCSV: windows-machine-config-operator.v0.0.1
+        name: alpha
+      defaultChannel: "alpha"
+      packageName: windows-machine-config-operator
+kind: ConfigMap
+metadata:
+  name: wmco-operators
