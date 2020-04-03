@@ -29,38 +29,39 @@ import (
 const (
 	// windowsOSLabel is the label that is applied by WMCB to identify the Windows nodes bootstrapped via WMCB
 	WindowsOSLabel = "node.openshift.io/os_id=Windows"
+	ControllerName = "windowsmachineconfig-controller"
 )
 
 var log = logf.Log.WithName("controller_windowsmachineconfig")
 
-/**
-* USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
-* business logic.  Delete these comments after modifying this file.*
- */
-
 // Add creates a new WindowsMachineConfig Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
+	reconciler, err := newReconciler(mgr)
+	if err != nil {
+		return errors.Wrap(err, "could not create "+ControllerName+" reconciler")
+	}
+	return add(mgr, reconciler)
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager) (reconcile.Reconciler, error) {
 	// TODO: This should be moved out to validation for reconciler struct.
 	// 		Jira story: https://issues.redhat.com/browse/WINC-277
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
-		log.Error(err, "error while getting clientset")
+		return nil, errors.Wrap(err, "error creating kubernetes clientset")
 	}
-	return &ReconcileWindowsMachineConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(), k8sclientset: clientset}
+	return &ReconcileWindowsMachineConfig{client: mgr.GetClient(), scheme: mgr.GetScheme(), k8sclientset: clientset},
+		nil
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
-	c, err := controller.New("windowsmachineconfig-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New(ControllerName, mgr, controller.Options{Reconciler: r})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "could not create "+ControllerName)
 	}
 	// TODO: Add a predicate here. As of now, we get event notifications for all the WindowsMachineConfig objects, we
 	//		want the predicate to filter the WMC object called `instance`
@@ -68,7 +69,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Watch for changes to primary resource WindowsMachineConfig
 	err = c.Watch(&source.Kind{Type: &wmcapi.WindowsMachineConfig{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "could not create watch on WindowsMachineConfig objects")
 	}
 
 	// TODO(user): Modify this to be the types you create that are owned by the primary resource
@@ -150,9 +151,6 @@ func (r *ReconcileWindowsMachineConfig) Reconcile(request reconcile.Request) (re
 		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("error instantiating cloud provider: %v", err)
 		}
-	}
-	if r.k8sclientset == nil {
-		return reconcile.Result{}, nil
 	}
 	if r.windowsVMs == nil {
 		// populate the windowsVM map here from configmap as source of truth
