@@ -36,6 +36,7 @@ func creationTestSuite(t *testing.T) {
 	t.Run("Network validation", testNetwork)
 	t.Run("Label validation", func(t *testing.T) { testWorkerLabel(t) })
 	t.Run("NodeTaint validation", func(t *testing.T) { testNodeTaint(t) })
+	t.Run("Status", func(t *testing.T) { testStatusWhenSuccessful(t) })
 }
 
 // testWindowsNodeCreation tests the Windows node creation in the cluster
@@ -43,6 +44,16 @@ func testWindowsNodeCreation(t *testing.T) {
 	testCtx, err := NewTestContext(t)
 	require.NoError(t, err)
 	// create WMCO custom resource
+	if _, err := testCtx.createWMC(gc.numberOfNodes, gc.sshKeyPair); err != nil {
+		t.Fatalf("error creating wcmo custom resource  %v", err)
+	}
+	if err := testCtx.waitForWindowsNode(true); err != nil {
+		t.Fatalf("windows node creation failed  with %v", err)
+	}
+	log.Printf("Created %d Windows worker nodes", len(gc.nodes))
+}
+
+func (tc *testContext) createWMC(replicas int, keyPair string) (*operator.WindowsMachineConfig, error) {
 	wmco := &operator.WindowsMachineConfig{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "WindowsMachineConfig",
@@ -50,28 +61,21 @@ func testWindowsNodeCreation(t *testing.T) {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      wmcCRName,
-			Namespace: testCtx.namespace,
+			Namespace: tc.namespace,
 		},
 		Spec: operator.WindowsMachineConfigSpec{
 			InstanceType: instanceType,
-			AWS:          &operator.AWS{CredentialAccountID: credentialAccountID, SSHKeyPair: gc.sshKeyPair},
-			Replicas:     gc.numberOfNodes,
+			AWS:          &operator.AWS{CredentialAccountID: credentialAccountID, SSHKeyPair: keyPair},
+			Replicas:     replicas,
 		},
 	}
-	if err = framework.Global.Client.Create(context.TODO(), wmco,
-		&framework.CleanupOptions{TestContext: testCtx.osdkTestCtx,
-			Timeout: cleanupTimeout, RetryInterval: cleanupRetryInterval}); err != nil {
-		t.Fatalf("error creating wcmo custom resource  %v", err)
-	}
-	err = testCtx.waitForWindowsNode()
-	if err != nil {
-		t.Fatalf("windows node creation failed  with %v", err)
-	}
-	log.Printf("Created %d Windows worker nodes", len(gc.nodes))
+	return wmco, framework.Global.Client.Create(context.TODO(), wmco,
+		&framework.CleanupOptions{TestContext: tc.osdkTestCtx,
+			Timeout: cleanupTimeout, RetryInterval: cleanupRetryInterval})
 }
 
 // waitForWindowsNode waits for the Windows node with the correct set of annotations to be created by the operator.
-func (tc *testContext) waitForWindowsNode() error {
+func (tc *testContext) waitForWindowsNode(waitForAnnotations bool) error {
 	var nodes *v1.NodeList
 	annotations := []string{nodeconfig.HybridOverlaySubnet, nodeconfig.HybridOverlayMac}
 
@@ -91,7 +95,10 @@ func (tc *testContext) waitForWindowsNode() error {
 			log.Printf("waiting for %d/%d Windows nodes", len(nodes.Items), gc.numberOfNodes)
 			return false, nil
 		}
-
+		if !waitForAnnotations {
+			gc.nodes = nodes.Items
+			return true, nil
+		}
 		// Wait for annotations to be present on the node objects in the scale up caseoc
 		if gc.numberOfNodes != 0 {
 			log.Printf("waiting for annotations to be present on %d Windows nodes", gc.numberOfNodes)

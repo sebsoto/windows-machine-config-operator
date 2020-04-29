@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -78,7 +79,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	//		want the predicate to filter the WMC object called `instance`
 	//		Jira Story: https://issues.redhat.com/browse/WINC-282
 	// Watch for changes to primary resource WindowsMachineConfig
-	err = c.Watch(&source.Kind{Type: &wmcapi.WindowsMachineConfig{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &wmcapi.WindowsMachineConfig{}}, &handler.EnqueueRequestForObject{},
+		// prevent reconciling due to a status update
+		predicate.GenerationChangedPredicate{})
 	if err != nil {
 		return errors.Wrap(err, "could not create watch on WindowsMachineConfig objects")
 	}
@@ -114,6 +117,8 @@ type ReconcileWindowsMachineConfig struct {
 	k8sclientset *kubernetes.Clientset
 	// tracker is used to track all the Windows nodes created via WMCO
 	tracker *tracker.Tracker
+	// statusMgr is used to keep track of and update the WMC status
+	statusMgr *StatusManager
 }
 
 // getCloudProvider gathers the cloud provider information and sets the cloudProvider struct field
@@ -128,7 +133,6 @@ func (r *ReconcileWindowsMachineConfig) getCloudProvider(instance *wmcapi.Window
 	if instance.Spec.AWS == nil {
 		return fmt.Errorf("aws cloud provider is nil, cannot proceed further")
 	}
-
 	// TODO: We assume the cloud provider secret has been mounted to "/etc/cloud/credentials` and private key is
 	//              present at "/etc/private-key.pem". We should have a validation method which checks for the existence
 	//              of these paths.
@@ -171,10 +175,15 @@ func (r *ReconcileWindowsMachineConfig) Reconcile(request reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	if err := r.getCloudProvider(instance); err != nil {
-		log.Error(err, "could not get cloud provider")
-		// Not going to requeue as an issue here indicates a problem with the provided credentials
-		return reconcile.Result{}, nil
+	r.statusMgr = NewStatusManager(r.client, request.NamespacedName)
+		if err := r.getCloudProvider(instance); err != nil {
+			// Failed to get cloud provider so make sure we reflect that in the CR status
+			r.statusMgr.addDegradationReason(wmcapi.CloudProviderAPIFailureReason,
+				fmt.Sprintf("could not get cloud provider: %s", err))
+			r.statusMgr.updateStatus()
+			log.Error(err, "could not get cloud provider")
+			// Not going to requeue as an issue here indicates a problem with the provided credentials
+			return reconcile.Result{}, nil
 	}
 
 	// Get the current number of Windows VMs created by WMCO.
@@ -182,42 +191,62 @@ func (r *ReconcileWindowsMachineConfig) Reconcile(request reconcile.Request) (re
 	//		jira story: https://issues.redhat.com/browse/WINC-280
 	windowsNodes, err := r.k8sclientset.CoreV1().Nodes().List(metav1.ListOptions{LabelSelector: nodeconfig.WindowsOSLabel})
 	if err != nil {
+		// This is most likely a permission error, do not requeue
+		log.Error(err, "unable to get count of Windows nodes")
 		return reconcile.Result{}, nil
 	}
 
 	// Get the current count of required number of Windows VMs
 	currentCountOfWindowsVMs := len(windowsNodes.Items)
-	if instance.Spec.Replicas != currentCountOfWindowsVMs {
-		// TODO: We're swallowing the error which is a bad pattern, let's clean this up
-		//		Jira story: https://issues.redhat.com/browse/WINC-266
-		if !r.reconcileWindowsNodes(instance.Spec.Replicas, currentCountOfWindowsVMs) {
-			return reconcile.Result{}, nil
-		}
-	}
+	r.statusMgr.status.JoinedVMCount = currentCountOfWindowsVMs
 
-	return reconcile.Result{}, nil
+	// return early if things are how we want them. Updating the status causes the CR to get requeued which could put us
+	// in this state
+	if currentCountOfWindowsVMs == instance.Spec.Replicas {
+		return reconcile.Result{}, nil
+	}
+	// Update status to reflect that operator is reconciling
+	r.statusMgr.setReconciling()
+
+	// Add or remove nodes
+	nodeCount, nodeReconcileErr := r.reconcileWindowsNodes(instance.Spec.Replicas, currentCountOfWindowsVMs)
+	r.statusMgr.status.JoinedVMCount = nodeCount
+	r.statusMgr.reconciling = false
+
+	// Update all conditions and node count
+	r.statusMgr.updateStatus()
+
+	// Now that we've updated the status we can return a possible reconcile error
+	return reconcile.Result{}, nodeReconcileErr
+
 }
 
 // reconcileWindowsNodes reconciles the Windows nodes so that required number of the Windows nodes are present in the
-// cluster
-func (r *ReconcileWindowsMachineConfig) reconcileWindowsNodes(desired, current int) bool {
+// cluster. Returns the new node count and any errors that occurred
+func (r *ReconcileWindowsMachineConfig) reconcileWindowsNodes(desired, current int) (int, error) {
+	var err error
+	var sucesses int
+	var newNodeCount int
 	log.Info("replicas", "current", current, "desired", desired)
-	var vmCount bool
 	if desired < current {
-		vmCount = r.removeWorkerNodes(current - desired)
+		sucesses, err = r.removeWorkerNodes(current - desired)
+		newNodeCount = current - sucesses
 	} else if desired > current {
-		vmCount = r.addWorkerNodes(desired - current)
+		sucesses, err = r.addWorkerNodes(desired - current)
+		newNodeCount = current + sucesses
 	} else if desired == current {
-		return true
+		return current, nil
 	}
+
 	r.tracker.WindowsVMs(r.windowsVMs)
 	log.V(1).Info("starting tracker reconciliation")
-	err := r.tracker.Reconcile()
-	if err != nil {
-		log.Error(err, "tracker reconciliation failed")
+	log.Info("Tracking", "num", len(r.windowsVMs), "WindowsVMs", r.windowsVMs)
+	if trackerErr := r.tracker.Reconcile(); trackerErr != nil {
+		log.Error(trackerErr, "tracking Windows VMs via configmap failed")
 	}
 	log.V(1).Info("completed tracker reconciliation")
-	return vmCount
+
+	return newNodeCount, err
 }
 
 // chooseRandomNode chooses one of the windows nodes randomly. The randomization is coming from golang maps since you
@@ -255,10 +284,8 @@ func (r *ReconcileWindowsMachineConfig) removeWorkerNode(vm types.WindowsVM) err
 }
 
 // removeWorkerNodes removes the required number of Windows VMs from the cluster and returns a bool indicating the
-// success. This method will return false if any of the VMs fail to be removed.
-// TODO: This method should return a slice of errors that we collected.
-//		Jira story: https://issues.redhat.com/browse/WINC-266
-func (r *ReconcileWindowsMachineConfig) removeWorkerNodes(count int) bool {
+// success. Returns the actual number of removed nodes and any associated errors.
+func (r *ReconcileWindowsMachineConfig) removeWorkerNodes(count int) (int, error) {
 	var errs []error
 	// From the list of Windows VMs choose randomly count number of VMs.
 	for i := 0; i < count; i++ {
@@ -275,9 +302,11 @@ func (r *ReconcileWindowsMachineConfig) removeWorkerNodes(count int) bool {
 
 	// If any of the Windows VM fails to get removed consider this as a failure and return false
 	if len(errs) > 0 {
-		return false
+		r.statusMgr.addDegradationReason(wmcapi.VMTerminationFailureReason,
+			fmt.Sprintf("error deleting VMs: %v", errs))
+		return count - len(errs), fmt.Errorf("error deleting VMs: %v", errs)
 	}
-	return true
+	return count, nil
 }
 
 // addWorkerNode creates a new Windows VM and configures it, adding it as a node object to the cluster
@@ -286,6 +315,7 @@ func (r *ReconcileWindowsMachineConfig) addWorkerNode() (types.WindowsVM, error)
 	log.V(1).Info("creating a Windows VM")
 	vm, err := r.cloudProvider.CreateWindowsVM()
 	if err != nil {
+		r.statusMgr.addDegradationReason(wmcapi.VMCreationFailureReason, err.Error())
 		return nil, errors.Wrap(err, "error creating windows VM")
 	}
 
@@ -296,6 +326,8 @@ func (r *ReconcileWindowsMachineConfig) addWorkerNode() (types.WindowsVM, error)
 		if cleanupErr := r.removeWorkerNode(vm); cleanupErr != nil {
 			log.Error(cleanupErr, "failed to cleanup VM", "VM", vm.GetCredentials().GetInstanceId())
 		}
+
+		r.statusMgr.addDegradationReason(wmcapi.VMConfigurationFailureReason, err.Error())
 		return nil, errors.Wrap(err, "failed to configure Windows VM")
 	}
 
@@ -304,10 +336,9 @@ func (r *ReconcileWindowsMachineConfig) addWorkerNode() (types.WindowsVM, error)
 }
 
 // addWorkerNodes creates the required number of Windows VMs and configures them to make
-// them a worker node
-// TODO: This method should return a slice of errors that we collected.
-//		Jira story: https://issues.redhat.com/browse/WINC-266
-func (r *ReconcileWindowsMachineConfig) addWorkerNodes(count int) bool {
+// them a worker node. Returns the number of nodes added and the associated errors.
+func (r *ReconcileWindowsMachineConfig) addWorkerNodes(count int) (int, error) {
+
 	var errs []error
 	for i := 0; i < count; i++ {
 		// Create and configure a new Windows VM
@@ -326,7 +357,7 @@ func (r *ReconcileWindowsMachineConfig) addWorkerNodes(count int) bool {
 
 	// If any of the Windows VM fails to get created consider this as a failure and return false
 	if len(errs) > 0 {
-		return false
+		return count - len(errs), fmt.Errorf("failed to create Windows nodes: %v", errs)
 	}
-	return true
+	return count, nil
 }
