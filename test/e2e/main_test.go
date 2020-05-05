@@ -47,6 +47,12 @@ type globalContext struct {
 	skipNodeDeletion bool
 	// sshKeyPair is the name of the keypair that we can use to decrypt the Windows node created in AWS cloud
 	sshKeyPair string
+	// kubeconfig is the kubeconfig of the cluster
+	kubeconfig string
+	// cloudCredentialPath is the path of the cloud credential file used by WNI
+	cloudCredentialPath string
+	// sshKeyPath is the path of the sshKey used to decrypt the Windows VM password
+	sshKeyPath string
 }
 
 // testContext holds the information related to the individual test suite. This data structure

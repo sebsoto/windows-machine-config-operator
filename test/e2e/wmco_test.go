@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	operator "github.com/openshift/windows-machine-config-operator/pkg/apis/wmc/v1alpha1"
 	framework "github.com/operator-framework/operator-sdk/pkg/test"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -30,7 +32,17 @@ func TestWMCO(t *testing.T) {
 	gc.numberOfNodes = numberOfNodes
 	gc.skipNodeDeletion = skipNodeDeletion
 	gc.sshKeyPair = sshKeyPair
+
+	// get required environment variables
+	gc.kubeconfig = os.Getenv("KUBECONFIG")
+	require.NotEmpty(t, gc.kubeconfig, "KUBECONFIG env var not set")
+	gc.cloudCredentialPath = os.Getenv("AWS_SHARED_CREDENTIALS_FILE")
+	require.NotEmpty(t, gc.cloudCredentialPath, "AWS_SHARED_CREDENTIALS_FILE env var not set")
+	gc.sshKeyPath = os.Getenv("KUBE_SSH_KEY_PATH")
+	require.NotEmpty(t, gc.sshKeyPath, "KUBE_SSH_KEY_PATH env var not set")
+
 	t.Run("WMC CR validation", testWMCValidation)
+	t.Run("failure behavior", testFailureSuite)
 	t.Run("create", creationTestSuite)
 	if !gc.skipNodeDeletion {
 		t.Run("destroy", deletionTestSuite)
