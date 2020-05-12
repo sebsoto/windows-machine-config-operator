@@ -3,8 +3,10 @@ package windowsmachineconfig
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 
+	credsv1 "github.com/openshift/cloud-credential-operator/pkg/apis/cloudcredential/v1"
 	"github.com/openshift/windows-machine-config-bootstrapper/tools/windows-node-installer/pkg/cloudprovider"
 	"github.com/openshift/windows-machine-config-bootstrapper/tools/windows-node-installer/pkg/types"
 	wmcapi "github.com/openshift/windows-machine-config-operator/pkg/apis/wmc/v1alpha1"
@@ -58,6 +60,7 @@ func newReconciler(mgr manager.Manager) (reconcile.Reconciler, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to instantiate tracker")
 	}
+	credsv1.AddToScheme(mgr.GetScheme())
 
 	return &ReconcileWindowsMachineConfig{client: mgr.GetClient(),
 			scheme:       mgr.GetScheme(),
@@ -154,6 +157,106 @@ func (r *ReconcileWindowsMachineConfig) getCloudProvider(instance *wmcapi.Window
 	return nil
 }
 
+type cloudManager interface {
+	cloudprovider.Cloud
+	getCloudCredentials(kubernetes.Interface)
+	writeCredentialsFile(string)
+}
+
+func newAWSManager(namespace string, k8sClient *kubernetes.Clientset, fclient client.Client) *awsManager {
+	return &awsManager{
+		namespace: namespace,
+		k8sClient: k8sClient,
+		fClient:   fclient,
+	}
+}
+
+type awsManager struct {
+	cloudprovider.Cloud
+	accessKeyId     string
+	secretAccessKey string
+	namespace       string
+	k8sClient       *kubernetes.Clientset
+	fClient         client.Client
+}
+
+func (a *awsManager) getCloudCredentials() error {
+	req := credsv1.CredentialsRequest{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "CredentialsRequest",
+			APIVersion: "cloudcredential.openshift.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "windows-machine-config-operator-aws",
+			Namespace: "openshift-cloud-credential-operator",
+		},
+		Spec: credsv1.CredentialsRequestSpec{
+			SecretRef: corev1.ObjectReference{
+				Namespace: a.namespace,
+				Name:      "aws-cloud-credentials",
+			},
+			ProviderSpec: &runtime.RawExtension{
+				Object: &credsv1.AWSProviderSpec{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "AWSProviderSpec",
+						APIVersion: "cloudcredential.openshift.io/v1",
+					},
+					StatementEntries: []credsv1.StatementEntry{
+						{
+							Effect:   "Allow",
+							Action:   []string{"ec2:CreateTags"},
+							Resource: "*",
+						},
+					},
+				},
+			},
+		},
+	}
+	credRequestPath :=
+		"/apis/cloudcredential.openshift.io/v1/" +
+			"namespaces/openshift-cloud-credential-operator/" +
+			"credentialsrequests/windows-machine-config-operator-aws"
+	found := &credsv1.CredentialsRequest{}
+	if err := a.k8sClient.RESTClient().Get().AbsPath(credRequestPath).Do().Into(found); err != nil {
+		if !k8sapierrors.IsNotFound(err) {
+			return errors.Wrap(err, "error getting credentialsrequest")
+		}
+		// create cred request if it does not exist
+		log.Info("Creating credentials request")
+		if err = a.fClient.Create(context.TODO(), &req); err != nil {
+			return errors.Wrapf(err, "could not create credentialsrequest object")
+		}
+	}
+	// Get cloud provider creds secret and make sure it has what we are looking for
+	credentialSecret, err := a.k8sClient.CoreV1().Secrets(a.namespace).Get("aws-cloud-credentials", metav1.GetOptions{})
+	if err != nil {
+		return errors.Wrap(err, "could not get credential secret")
+	}
+	log.Info("got secret")
+	if len(credentialSecret.Data) != 2 {
+		return errors.Wrap(err, "credential secret did not have the exact required keys")
+	}
+
+	keyID, ok := credentialSecret.Data["aws_access_key_id"]
+	if !ok {
+		return errors.Wrap(err, "credential secret did not have the exact required keys")
+	}
+	log.Info("decoding","key",string(keyID))
+	a.accessKeyId = string(keyID)
+	secretAccessKey, ok := credentialSecret.Data["aws_secret_access_key"]
+	if !ok {
+		return errors.Wrap(err, "credential secret did not have the exact required keys")
+	}
+	a.secretAccessKey = string(secretAccessKey)
+	log.Info("got keys", "aws_access_key_id", a.accessKeyId, "saws_secret_access_key", a.secretAccessKey)
+	return nil
+}
+func (a *awsManager) writeCredentialsFile(path string) error {
+	fileContents := "[default]\naws_access_key_id = " + a.accessKeyId + "\naws_secret_access_key = " + a.secretAccessKey + "\n"
+	return ioutil.WriteFile(path, []byte(fileContents), 0)
+
+}
+
 // Reconcile reads that state of the cluster for a WindowsMachineConfig object and makes changes based on the state read
 // and what is in the WindowsMachineConfig.Spec
 // Note:
@@ -175,6 +278,18 @@ func (r *ReconcileWindowsMachineConfig) Reconcile(request reconcile.Request) (re
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
 	}
+
+	// Credentials request
+
+	man := newAWSManager(request.Namespace, r.k8sclientset, r.client)
+	if err = man.getCloudCredentials(); err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "error getting cloud credentials")
+	}
+	if err = man.writeCredentialsFile(wkl.CloudCredentialsPath); err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "error writing cloud credentials to file")
+	}
+
+	log.Info("CredentialsRequest aquired")
 
 	r.statusMgr = NewStatusManager(r.client, request.NamespacedName)
 	if err := r.getCloudProvider(instance); err != nil {

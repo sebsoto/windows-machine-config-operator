@@ -36,11 +36,12 @@ replace (
 require (
 	github.com/openshift/api v3.9.1-0.20190924102528-32369d4db2ad+incompatible
 	github.com/openshift/client-go v0.0.0-20190923180330-3b6373338c9b
+	github.com/openshift/cloud-credential-operator v0.0.0-20200422160855-c442add7ccef
 	github.com/openshift/windows-machine-config-bootstrapper/tools/windows-node-installer v0.0.0-20200427215039-03033d75837c
 	github.com/operator-framework/operator-sdk v0.17.0
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.4.0
+	github.com/stretchr/testify v1.5.1
 	k8s.io/api v0.18.2
 	k8s.io/apimachinery v0.18.2
 	k8s.io/client-go v12.0.0+incompatible
