@@ -39,6 +39,8 @@ type globalContext struct {
 	skipNodeDeletion bool
 	// sshKeyPair is the name of the keypair that we can use to decrypt the Windows node created in AWS cloud
 	sshKeyPair string
+	// operatorVersion is the expected version of WMCO
+	operatorVersion string
 }
 
 // testContext holds the information related to the individual test suite. This data structure

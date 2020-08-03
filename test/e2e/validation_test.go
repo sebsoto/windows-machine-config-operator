@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"strings"
 	"testing"
 
@@ -41,6 +42,40 @@ func testWorkerLabel(t *testing.T) {
 	for _, node := range gc.nodes {
 		assert.Contains(t, node.Labels, nc.WorkerLabel, "expected node label %s was not present on %s", nc.WorkerLabel, node.GetName())
 	}
+}
+
+// testVersionAnnotation tests all nodes are annotated with the version of the currently deployed WMCO
+func testVersionAnnotation(t *testing.T) {
+	for _, node := range gc.nodes {
+		require.Containsf(t, node.Annotations, nc.VersionAnnotation, "node %s missing version annotation", node.GetName())
+		assert.Equal(t, gc.operatorVersion, node.Annotations[nc.VersionAnnotation], "WMCO version annotation mismatch")
+	}
+	t.Run("test that version reverts after change", testVersionRevert)
+}
+
+// testVersionRevert tests that the version annotation on nodes will be reverted to the proper value if changed
+func testVersionRevert(t *testing.T) {
+	tc, err := NewTestContext(t)
+	require.NoError(t, err, "could not create new test context")
+
+	// Change nodes to incorrect version
+	for _, node := range gc.nodes {
+		changedNode := node
+		changedNode.Annotations[nc.VersionAnnotation] = "notExpected"
+		_, err = tc.kubeclient.CoreV1().Nodes().Update(context.TODO(), &changedNode, metav1.UpdateOptions{})
+		require.NoError(t, err, "error updating node objects")
+	}
+
+	// repopulate gc.nodes with new values
+	nodes, err := tc.kubeclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: nc.WindowsOSLabel})
+	require.NoError(t, err, "error listing Windows nodes")
+	require.Lenf(t, nodes.Items, int(gc.numberOfNodes), "Expected num of Windows nodes does not match: %v", nodes.Items)
+	gc.nodes = nodes.Items
+	for _, node := range gc.nodes {
+		require.Containsf(t, node.Annotations, nc.VersionAnnotation, "node %s missing version annotation", node.GetName())
+		assert.Equal(t, gc.operatorVersion, node.Annotations[nc.VersionAnnotation], "WMCO version annotation mismatch")
+	}
+
 }
 
 // testNodeTaint tests if the Windows node has the Windows taint

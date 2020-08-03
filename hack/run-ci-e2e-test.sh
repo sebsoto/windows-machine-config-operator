@@ -85,6 +85,7 @@ fi
 # -flag x is allowed for non-boolean flags only(https://golang.org/pkg/flag/)
 # Run the creation tests and skip deletion of the Windows VMs
 OSDK_WMCO_test $OSDK "-run=TestWMCO/create -v -timeout=90m -node-count=$NODE_COUNT -skip-node-deletion -ssh-key-pair=$KEY_PAIR_NAME"
+exit 0
 
 # Run the deletion tests while testing operator restart functionality. This will clean up VMs created
 # in the previous step

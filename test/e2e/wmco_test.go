@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os/exec"
 	"testing"
 	"time"
 
@@ -21,8 +22,12 @@ var (
 
 // TestWMCO sets up the testing suite for WMCO.
 func TestWMCO(t *testing.T) {
+	var err error
 	if err := setupWMCOResources(); err != nil {
 		t.Fatalf("%v", err)
+	}
+	if gc.operatorVersion, err = wmcoVersion(); err != nil {
+		t.Fatalf("could not determine expected WMCO version: %v", err)
 	}
 
 	// We've to update the global context struct here as the operator-sdk's framework has coupled flag
@@ -47,4 +52,16 @@ func setupWMCOResources() error {
 		return errors.Wrap(err, "failed adding machine api scheme")
 	}
 	return nil
+}
+
+// wmcoVersion returns the version that should be annotated on each Windows node
+func wmcoVersion() (string, error) {
+	// expected version in CI is our semver + short commit hash
+	expectedVersion := "0.0.1"
+	cmd := exec.Command("git", "rev-parse", "--short HEAD")
+	commit, err := cmd.Output()
+	if err != nil {
+		return "", errors.Wrap(err, "could not get current git commit")
+	}
+	return expectedVersion + "+" + string(commit), nil
 }
