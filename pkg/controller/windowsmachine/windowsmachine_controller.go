@@ -14,6 +14,7 @@ import (
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	kubeTypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
@@ -91,7 +92,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	}
 	// Watch for the Machine objects with label defined by windowsOSLabel
 	windowsOSLabel := "machine.openshift.io/os-id"
-	predicateFilter := predicate.Funcs{
+	machinePredicate := predicate.Funcs{
 		// ignore create event for all Machines as WMCO should for Machine getting provisioned
 		CreateFunc: func(e event.CreateEvent) bool {
 			return false
@@ -113,11 +114,67 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	err = c.Watch(&source.Kind{Type: &mapi.Machine{
 		ObjectMeta: meta.ObjectMeta{Namespace: "openshift-machine-api"},
-	}}, &handler.EnqueueRequestForObject{}, predicateFilter)
+	}}, &handler.EnqueueRequestForObject{}, machinePredicate)
 	if err != nil {
 		return errors.Wrap(err, "could not create watch on Machine objects")
 	}
 
+	err = c.Watch(&source.Kind{Type: &core.Node{
+		ObjectMeta: meta.ObjectMeta{Namespace: ""},
+	}}, &handler.EnqueueRequestsFromMapFunc{ToRequests: newNodeToMachineMapper(mgr.GetClient())}, predicate.Funcs{
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return false
+		},
+	})
+	if err != nil {
+		return errors.Wrap(err, "could not create watch on node objects")
+	}
+
+	return nil
+}
+
+// nodeToMachineMapper fulfills the mapper interface and allows for the mapping from a node to the associated Machine
+type nodeToMachineMapper struct {
+	client client.Client
+}
+
+// newNodeToMachineMapper returns a pointer to a new nodeToMachineMapper
+func newNodeToMachineMapper(client client.Client) *nodeToMachineMapper {
+	return &nodeToMachineMapper{client: client}
+}
+
+// Map maps Windows nodes to machines
+func (m *nodeToMachineMapper) Map(object handler.MapObject) []reconcile.Request {
+	node := core.Node{}
+
+	// If for some reason this mapper is called on an object which is not a Node, return
+	if kind := object.Object.GetObjectKind().GroupVersionKind(); kind.Kind != node.Kind {
+		return nil
+	}
+	if object.Meta.GetLabels()[core.LabelOSStable] != "windows" {
+		return nil
+	}
+
+	// Map the Node to the associated Machine through the Node's UID
+	machines := &mapi.MachineList{}
+	err := m.client.List(context.TODO(), machines)
+	if err != nil {
+		log.Error(err, "could not get a list of machines")
+	}
+	for _, machine := range machines.Items {
+		if machine.Status.NodeRef.UID == object.Meta.GetUID() {
+			log.Info("reconciling machine mapped to node", "machine", machine.GetName(), "node", object.Meta.GetName())
+			return []reconcile.Request{
+				{
+					NamespacedName: types.NamespacedName{
+						Namespace: machine.GetNamespace(),
+						Name:      machine.GetName(),
+					},
+				},
+			}
+		}
+	}
+	// Node doesn't match a machine, return
 	return nil
 }
 
