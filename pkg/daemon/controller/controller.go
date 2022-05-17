@@ -21,7 +21,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"os"
 	"reflect"
 	"strings"
 
@@ -33,7 +35,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/jsonpath"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,9 +72,17 @@ func RunController(kubeconfigPath string) error {
 	if err != nil {
 		return err
 	}
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	if err != nil {
-		return errors.Wrap(err, "error using kubeconfig to build config")
+	var config *rest.Config
+	if kubeconfigPath == "" {
+		config, err = HostProcessContainerInClusterConfig()
+		if err != nil {
+			return errors.Wrap(err, "error using kubeconfig to build config")
+		}
+	} else {
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+		if err != nil {
+			return errors.Wrap(err, "error using kubeconfig to build config")
+		}
 	}
 
 	clientScheme := runtime.NewScheme()
@@ -117,6 +129,37 @@ func RunController(kubeconfigPath string) error {
 		return err
 	}
 	return nil
+}
+
+// HostProcessContainerInClusterConfig uses the mounted serviceaccount token of a host process container to authenticate
+// with the cluster
+func HostProcessContainerInClusterConfig() (*rest.Config, error) {
+	tokenFile := "./var/run/secrets/kubernetes.io/serviceaccount/token"
+	rootCAFile := "./var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
+	if len(host) == 0 || len(port) == 0 {
+		return nil, rest.ErrNotInCluster
+	}
+
+	token, err := ioutil.ReadFile(tokenFile)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsClientConfig := rest.TLSClientConfig{}
+
+	if _, err := certutil.NewPool(rootCAFile); err != nil {
+		klog.Errorf("Expected to load root CA config from %s, but got err: %v", rootCAFile, err)
+	} else {
+		tlsClientConfig.CAFile = rootCAFile
+	}
+
+	return &rest.Config{
+		Host:            "https://" + net.JoinHostPort(host, port),
+		TLSClientConfig: tlsClientConfig,
+		BearerToken:     string(token),
+		BearerTokenFile: tokenFile,
+	}, nil
 }
 
 // NewServiceController returns a pointer to a ServiceController object
