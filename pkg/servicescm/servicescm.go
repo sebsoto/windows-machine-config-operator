@@ -28,11 +28,6 @@ const (
 var (
 	// Name is the full name of the Windows services ConfigMap, detailing the service config for a specific WMCO version
 	Name string
-	//TODO: Fill in required content as services and files are added to the ConfigMap definition
-	// requiredServices is the source of truth for expected service configuration on a Windows Node
-	requiredServices = &[]Service{}
-	// requiredFiles is the source of truth for files that are expected to exist on a Windows Node
-	requiredFiles = &[]FileInfo{}
 )
 
 // init runs once, initializing global variables
@@ -104,14 +99,9 @@ func newData(services *[]Service, files *[]FileInfo) (*data, error) {
 	return cmData, nil
 }
 
-// Generate returns the specifications for the Windows Service ConfigMap expected by WMCO
-func Generate(name, namespace string) (*core.ConfigMap, error) {
-	return GenerateWithData(name, namespace, requiredServices, requiredFiles)
-}
-
-// GenerateWithData creates an immutable service ConfigMap which provides WICD with the specifications
+// Generate creates an immutable service ConfigMap which provides WICD with the specifications
 // for each Windows service that must be created on a Windows instance.
-func GenerateWithData(name, namespace string, services *[]Service, files *[]FileInfo) (*core.ConfigMap, error) {
+func Generate(name, namespace string, services *[]Service, files *[]FileInfo) (*core.ConfigMap, error) {
 	immutable := true
 	servicesConfigMap := &core.ConfigMap{
 		ObjectMeta: meta.ObjectMeta{
@@ -192,22 +182,22 @@ func (cmData *data) validate() error {
 	return validatePriorities(cmData.Services)
 }
 
-// ValidateRequiredContent ensures that the given slices are comprised of all the required services/files and only these
-func (cmData *data) ValidateRequiredContent() error {
+// ValidateExpectedContent ensures that the given slices are comprised of all the expected services/files and only these
+func (cmData *data) ValidateExpectedContent(expectedServices *[]Service, expectedFiles *[]FileInfo) error {
 	// Validate services
-	if len(cmData.Services) != len(*requiredServices) {
+	if len(cmData.Services) != len(*expectedServices) {
 		return errors.New("Unexpected number of services")
 	}
-	for _, requiredSvc := range *requiredServices {
+	for _, requiredSvc := range *expectedServices {
 		if !requiredSvc.isPresentAndCorrect(cmData.Services) {
 			return errors.Errorf("Required service %s is not present with expected configuration", requiredSvc.Name)
 		}
 	}
 	// Validate files
-	if len(cmData.Files) != len(*requiredFiles) {
+	if len(cmData.Files) != len(*expectedFiles) {
 		return errors.New("Unexpected number of files")
 	}
-	for _, requiredFile := range *requiredFiles {
+	for _, requiredFile := range *expectedFiles {
 		if !requiredFile.isPresentAndCorrect(cmData.Files) {
 			return errors.Errorf("Required file %s is not present as expected", requiredFile.Path)
 		}
