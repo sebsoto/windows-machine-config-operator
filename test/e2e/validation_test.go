@@ -475,22 +475,24 @@ func testServicesConfigMap(t *testing.T) {
 	operatorVersion, err := getWMCOVersion()
 	require.NoError(t, err)
 	servicesConfigMapName := servicescm.NamePrefix + operatorVersion
-	expected := &servicescm.Data{}
 
 	// Ensure the windows-services ConfigMap exists in the cluster
+	var expectedData *servicescm.Data
 	t.Run("Services ConfigMap existence", func(t *testing.T) {
-		_, err = tc.client.K8s.CoreV1().ConfigMaps(tc.namespace).Get(context.TODO(), servicesConfigMapName,
+		cm, err := tc.client.K8s.CoreV1().ConfigMaps(tc.namespace).Get(context.TODO(), servicesConfigMapName,
 			meta.GetOptions{})
-		assert.NoErrorf(t, err, "error ensuring ConfigMap %s exists", servicesConfigMapName)
+		require.NoErrorf(t, err, "error ensuring ConfigMap %s exists", servicesConfigMapName)
+		expectedData, err = servicescm.Parse(cm.Data)
+		assert.NoError(t, err, "unable to parse ConfigMap data")
 	})
 
 	t.Run("Services ConfigMap re-creation", func(t *testing.T) {
-		err = tc.testServicesCMRegeneration(servicesConfigMapName, expected)
+		err = tc.testServicesCMRegeneration(servicesConfigMapName, expectedData)
 		assert.NoErrorf(t, err, "error ensuring ConfigMap %s is re-created when deleted", servicesConfigMapName)
 	})
 
 	t.Run("Invalid services ConfigMap deletion", func(t *testing.T) {
-		err = tc.testInvalidServicesCM(servicesConfigMapName, expected)
+		err = tc.testInvalidServicesCM(servicesConfigMapName, expectedData)
 		assert.NoError(t, err, "error testing handling of invalid ConfigMap")
 	})
 }
