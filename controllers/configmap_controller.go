@@ -48,6 +48,7 @@ import (
 	"github.com/openshift/windows-machine-config-operator/pkg/secrets"
 	"github.com/openshift/windows-machine-config-operator/pkg/servicescm"
 	"github.com/openshift/windows-machine-config-operator/pkg/signer"
+	"github.com/openshift/windows-machine-config-operator/pkg/windows"
 	"github.com/openshift/windows-machine-config-operator/pkg/wiparser"
 	"github.com/openshift/windows-machine-config-operator/version"
 )
@@ -85,7 +86,19 @@ func NewConfigMapReconciler(mgr manager.Manager, clusterConfig cluster.Config, w
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to initialize Prometheus configuration")
 	}
-	svcData, err := servicescm.NewData(&[]servicescm.Service{}, &[]servicescm.FileInfo{})
+
+	// Set expected state of the Windows service ConfigMap
+	services := &[]servicescm.Service{{
+		Name:                         windows.WindowsExporterServiceName,
+		Command:                      windows.WindowsExporterServiceCommand,
+		NodeVariablesInCommand:       nil,
+		PowershellVariablesInCommand: nil,
+		Dependencies:                 nil,
+		Bootstrap:                    false,
+		Priority:                     1,
+	}}
+	files := &[]servicescm.FileInfo{}
+	svcData, err := servicescm.NewData(services, files)
 	if err != nil {
 		return nil, err
 	}
