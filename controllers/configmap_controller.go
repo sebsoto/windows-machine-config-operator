@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 
@@ -88,15 +89,19 @@ func NewConfigMapReconciler(mgr manager.Manager, clusterConfig cluster.Config, w
 	}
 
 	// Set expected state of the Windows service ConfigMap
-	services := &[]servicescm.Service{{
-		Name:                         windows.WindowsExporterServiceName,
-		Command:                      windows.WindowsExporterServiceCommand,
-		NodeVariablesInCommand:       nil,
-		PowershellVariablesInCommand: nil,
-		Dependencies:                 nil,
-		Bootstrap:                    false,
-		Priority:                     1,
-	}}
+	debug := ctrl.Log.V(1).Enabled()
+	services := &[]servicescm.Service{
+		{
+			Name:                         windows.WindowsExporterServiceName,
+			Command:                      windows.WindowsExporterServiceCommand,
+			NodeVariablesInCommand:       nil,
+			PowershellVariablesInCommand: nil,
+			Dependencies:                 nil,
+			Bootstrap:                    false,
+			Priority:                     1,
+		},
+		hybridOverlayConfiguration(clusterConfig.Network().VXLANPort(), debug),
+	}
 	files := &[]servicescm.FileInfo{}
 	svcData, err := servicescm.NewData(services, files)
 	if err != nil {
@@ -117,6 +122,39 @@ func NewConfigMapReconciler(mgr manager.Manager, clusterConfig cluster.Config, w
 		},
 		servicesManifest: svcData,
 	}, nil
+}
+
+// hybridOverlayConfiguration returns the Service definition for hybrid-overlay
+func hybridOverlayConfiguration(vxlanPort string, debug bool) servicescm.Service {
+	var customVxlanPortArg = ""
+	if len(vxlanPort) > 0 {
+		customVxlanPortArg = " --hybrid-overlay-vxlan-port=" + vxlanPort
+	}
+
+	hybridOverlayServiceCmd := fmt.Sprintf("%s --node NODE_NAME %s --k8s-kubeconfig %s --windows-service "+
+		"--logfile "+"%shybrid-overlay.log", windows.HybridOverlayPath, customVxlanPortArg, windows.KubeconfigPath,
+		windows.HybridOverlayLogDir)
+
+	// check log level and increase hybrid-overlay verbosity if needed
+	if debug {
+		// append loglevel param using 5 for debug (default: 4)
+		// See https://github.com/openshift/ovn-kubernetes/blob/master/go-controller/pkg/config/config.go#L736
+		hybridOverlayServiceCmd = hybridOverlayServiceCmd + " --loglevel 5"
+	}
+	return servicescm.Service{
+		Name:    windows.HybridOverlayServiceName,
+		Command: hybridOverlayServiceCmd,
+		NodeVariablesInCommand: []servicescm.NodeCmdArg{
+			{
+				Name:               "NODE_NAME",
+				NodeObjectJsonPath: "{.metadata.name}",
+			},
+		},
+		PowershellVariablesInCommand: nil,
+		Dependencies:                 []string{windows.KubeletServiceName},
+		Bootstrap:                    false,
+		Priority:                     1,
+	}
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
