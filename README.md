@@ -228,6 +228,61 @@ deploy workloads.
 ### Cluster-wide proxy 
 WMCO does not support adding Windows workloads using a [cluster-wide proxy](https://docs.openshift.com/container-platform/latest/networking/enable-cluster-wide-proxy.html) config for the OpenShift Container Platform. WMCO will not be able to automatically route proxy connections for Windows workloads.
 
+## High level Architecture
+
+### Diagram
+```
+				|--------------------------------------	|
+				|windows-services ConfigMap		|
+				|- Versioned				|
+				|- Specifies Windows service definitions|
+				|- Command and args to execute		|
+				|  - Variable substitution for args	|
+	-----Creates----------->|    - Powershell script output		|
+	|			|    - Node object fields		|
+	|			|- Expected filepaths and checksums	|
+	|			---------------------------------------	|
+	|							|
+	|							|
+	|							|
+	|							|
+	|							|
+	|							v
+	|					|--------------------------------------------------------------	|
+	|					|Windows	|WICD						|
+|-------|----|					|Instance	|* Runs as:					|
+|   WMCO     |---------Copies required files--->|		|  * Windows Service (Implemented)		|
+|------------|  Execs WICD `bootstrap` command	|		|  * HostProcess container (Future)		|
+	  |					|		|* Starts and maintains specified services	|
+	  | 					|		|* Transitions from current to desired version	|
+    Approves CSRs				|		|						|
+    Annotates desired version			|		|-------|-------^------------------------------	|
+	  |					|-----------------------|-------|------------------------------	|
+	  v								|	|	
+	|------|<------Bootstrap services cause Node creation----------	|	|
+	|      |	     Annotates current version				|
+	| Node |								|
+	|------|----Desired version annotation informs which Configmap to use--	|
+```
+
+### Node addition workflow
+* WMCO creates windows-services ConfigMap
+* WMCO is made aware of a Windows instance to configure, either through a Machine object, or the windows-instances
+  ConfigMap.
+* WMCO copies over required binaries, including WICD, kubelet, kube-proxy, and any other exe's wished to be ran as a
+  Windows service.
+* WMCO copies over the bootstrap kubeconfig, and associated cert, allowing kubelet to request to become a Node within
+  the cluster.
+* WMCO runs the WICD bootstrap command on the instance over SSH, starting all bootstrap services.
+  These include kubelet and containerd
+* WMCO approves the Node CSRs, admitting the new Node into the cluster.
+* WMCO annotates the Node, indicating what version ConfigMap should be used when configuring the instance.
+* WMCO starts WICD as a Windows Service on the instance
+* WICD finds the Node created for the instance its running on, and determines which windows-service ConfigMap to use
+  based on the annotation applied by WMCO.
+* WICD starts all Windows services specified in the ConfigMap. If the created services and ConfigMap specifications
+  become out of sync, WICD will update the local service definitions to match the expected values.
+
 ## Development
 
 See [HACKING.md](docs/HACKING.md).
