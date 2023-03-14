@@ -58,6 +58,7 @@ const (
 	NetworkConfigurationScript = payloadDirectory + "/generated/network-conf.ps1"
 	// HybridOverlayName is the name of the hybrid overlay executable
 	HybridOverlayName = "hybrid-overlay-node.exe"
+	CSIProxyPath      = payloadDirectory + "csi-proxy/csi-proxy.exe"
 	// HybridOverlayPath contains the path of the hybrid overlay binary. The container image should already have this
 	// binary mounted
 	HybridOverlayPath = payloadDirectory + HybridOverlayName

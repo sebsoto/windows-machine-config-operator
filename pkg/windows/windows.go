@@ -86,7 +86,10 @@ const (
 	// KubeProxyLog is the location of the kube-proxy log file
 	KubeProxyLog = KubeProxyLogDir + "\\kube-proxy.log"
 	// KubeProxyPath is the location of the kube-proxy exe
-	KubeProxyPath = K8sDir + "\\kube-proxy.exe"
+	KubeProxyPath  = K8sDir + "\\kube-proxy.exe"
+	CSIProxyPath   = K8sDir + "\\csi-proxy.exe"
+	csiProxyLogDir = logDir + "\\csi-proxy"
+	CSIProxyLog    = csiProxyLogDir + "\\csi-proxy.log"
 	// HybridOverlayPath is the location of the hybrid-overlay-node exe
 	HybridOverlayPath = K8sDir + "\\hybrid-overlay-node.exe"
 	// HybridOverlayServiceName is the name of the hybrid-overlay-node Windows service
@@ -149,6 +152,7 @@ var (
 		CniConfDir,
 		logDir,
 		KubeletLogDir,
+		csiProxyLogDir,
 		KubeProxyLogDir,
 		wicdLogDir,
 		HybridOverlayLogDir,
@@ -177,6 +181,7 @@ func getFilesToTransfer() (map[*payload.FileInfo]string, error) {
 		payload.KubeletPath:                    K8sDir,
 		payload.AzureCloudNodeManagerPath:      K8sDir,
 		payload.KubeLogRunnerPath:              K8sDir,
+		payload.CSIProxyPath:                   K8sDir,
 		payload.ContainerdPath:                 ContainerdDir,
 		payload.HcsshimPath:                    ContainerdDir,
 		payload.ContainerdConfPath:             ContainerdDir,
