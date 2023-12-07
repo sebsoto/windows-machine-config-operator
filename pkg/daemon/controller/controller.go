@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -163,6 +164,9 @@ func RunController(ctx context.Context, watchNamespace, kubeconfig, caBundle str
 				watchNamespace: {},
 			},
 		},
+		Metrics: server.Options{
+			BindAddress: fmt.Sprintf("0.0.0.0:9183"),
+		},
 		Scheme: directClient.Scheme(),
 		Logger: klog.NewKlogr(),
 	})
@@ -176,6 +180,10 @@ func RunController(ctx context.Context, watchNamespace, kubeconfig, caBundle str
 	}
 	if err = sc.SetupWithManager(ctx, ctrlMgr); err != nil {
 		return err
+	}
+	pc, err := NewPodReconciler(ctrlMgr, node.GetName())
+	if err = pc.SetupWithManager(ctrlMgr); err != nil {
+		return fmt.Errorf("unable to setup pod reconciler: %w", err)
 	}
 	klog.Info("Starting manager, awaiting events")
 	if err := ctrlMgr.Start(ctx); err != nil {

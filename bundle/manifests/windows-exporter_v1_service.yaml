@@ -11,5 +11,9 @@ spec:
     port: 9182
     protocol: TCP
     targetPort: 9182
+  - name: wicd-metrics
+    port: 9183
+    protocol: TCP
+    targetPort: 9183
 status:
   loadBalancer: {}

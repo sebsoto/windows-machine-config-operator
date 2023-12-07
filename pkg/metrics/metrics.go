@@ -106,11 +106,18 @@ func (pc *PrometheusNodeConfig) syncMetricsEndpoint(nodeEndpointAdressess []v1.E
 	if nodeEndpointAdressess != nil {
 		subsets = []v1.EndpointSubset{{
 			Addresses: nodeEndpointAdressess,
-			Ports: []v1.EndpointPort{{
-				Name:     PortName,
-				Port:     Port,
-				Protocol: v1.ProtocolTCP,
-			}},
+			Ports: []v1.EndpointPort{
+				{
+					Name:     PortName,
+					Port:     Port,
+					Protocol: v1.ProtocolTCP,
+				},
+				{
+					Name:     "wicd-metrics",
+					Port:     9183,
+					Protocol: v1.ProtocolTCP,
+				},
+			},
 		}}
 	}
 

@@ -11,3 +11,11 @@ rules:
       - list
       - watch
       - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - list
+      - watch
+      - get

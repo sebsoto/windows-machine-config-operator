@@ -10,3 +10,7 @@ spec:
       protocol: TCP
       port: 9182
       targetPort: 9182
+    - name: wicd-metrics
+      protocol: TCP
+      port: 9183
+      targetPort: 9183
