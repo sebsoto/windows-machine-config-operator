@@ -128,6 +128,49 @@ $cni_template=@'
 }
 '@
 
+# from https://github.com/kubernetes-sigs/sig-windows-tools/blob/fbe00b42e2a5cca06bc182e1b6ee579bd65ed1b5/hostprocess/flannel/kube-proxy/start.ps1
+function GetSourceVip($NetworkName)
+{
+    mkdir -force c:/sourcevip | Out-Null
+    $sourceVipJson = [io.Path]::Combine("c:/", "sourcevip",  "sourceVip.json")
+    $sourceVipRequest = [io.Path]::Combine("c:/", "sourcevip", "sourceVipRequest.json")
+
+    if (Test-Path $sourceVipJson) {
+        $sourceVipJSONData = Get-Content $sourceVipJson | ConvertFrom-Json
+        $vip = $sourceVipJSONData.ip4.ip.Split("/")[0]
+        return $vip
+    }
+
+    $hnsNetwork = Get-HnsNetwork | ? Name -EQ $NetworkName.ToLower()
+    $subnet = $hnsNetwork.Subnets[0].AddressPrefix
+
+    $ipamConfig = @"
+    {"cniVersion": "0.2.0", "name": "$NetworkName", "ipam":{"type":"host-local","ranges":[[{"subnet":"$subnet"}]],"dataDir":"/var/lib/cni/networks"}}
+"@
+
+    Write-Host "ipam sourcevip request: $ipamConfig"
+    $ipamConfig | Out-File $sourceVipRequest
+
+    $env:CNI_COMMAND="ADD"
+    $env:CNI_CONTAINERID="dummy"
+    $env:CNI_NETNS="dummy"
+    $env:CNI_IFNAME="dummy"
+    $env:CNI_PATH="c:\k\cni" #path to host-local.exe
+
+    # reserve an ip address for source VIP, a requirement for kubeproxy in overlay mode
+    Get-Content $sourceVipRequest | c:/k/cni/host-local.exe | Out-File $sourceVipJson
+
+    Remove-Item env:CNI_COMMAND
+    Remove-Item env:CNI_CONTAINERID
+    Remove-Item env:CNI_NETNS
+    Remove-Item env:CNI_IFNAME
+    Remove-Item env:CNI_PATH
+
+    $sourceVipJSONData = Get-Content $sourceVipJson | ConvertFrom-Json
+    $vip = $sourceVipJSONData.ip4.ip.Split("/")[0]
+    return $vip
+}
+
 # Generate CNI Config
 $hns_network=Get-HnsNetwork  | where { $_.Name -eq 'HNS_NETWORK'}
 $subnet=$hns_network.Subnets.AddressPrefix
@@ -151,8 +194,8 @@ if( $endpoint -eq $null) {
     Attach-HNSHostEndpoint -EndpointID $endpoint.ID -CompartmentID 1
 }
 
-# Return HNS endpoint IP
-(Get-NetIPConfiguration -AllCompartments -All -Detailed | where { $_.NetAdapter.LinkLayerAddress -eq $endpoint.MacAddress }).IPV4Address.IPAddress.Trim()
+# Return source VIP for HNS network
+(GetSourceVip("HNS_NETWORK"))
 `
 )
 
