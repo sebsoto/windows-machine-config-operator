@@ -12,15 +12,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: windows-machine-config-operator
-<<<<<<< Updated upstream
     appstudio.openshift.io/component: windows-machine-config-operator-catalog
     pipelines.appstudio.openshift.io/type: build
   name: windows-machine-config-operator-catalog-on-pull-request
-=======
-    appstudio.openshift.io/component: catalog
-    pipelines.appstudio.openshift.io/type: build
-  name: catalog-on-pull-request
->>>>>>> Stashed changes
   namespace: windows-machine-conf-tenant
 spec:
   params:
@@ -31,11 +25,7 @@ spec:
   - name: image-expires-after
     value: 5d
   - name: output-image
-<<<<<<< Updated upstream
     value: quay.io/redhat-user-workloads/windows-machine-conf-tenant/windows-machine-config-operator/windows-machine-config-operator-catalog:on-pr-{{revision}}
-=======
-    value: quay.io/redhat-user-workloads/windows-machine-conf-tenant/windows-machine-config-operator/catalog:on-pr-{{revision}}
->>>>>>> Stashed changes
   - name: path-context
     value: .
   - name: revision
