@@ -10,11 +10,6 @@ ENV GO_COMPLIANCE_DEBUG=0
 # downloading the latest version
 ENV GOTOOLCHAIN=local
 
-# dos2unix is needed to build CNI plugins
-#RUN mkdir /tmp/dos2unix
-#RUN dnf --downloaddir=/tmp/dos2unix install -y dos2unix
-RUN dnf  install -y dos2unix
-
 WORKDIR /build/windows-machine-config-operator/
 COPY .git .git
 
