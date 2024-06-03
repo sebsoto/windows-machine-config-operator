@@ -1,3 +1,5 @@
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.21 as builder
+RUN echo noop
 FROM scratch
 
 # This block are standard Red Hat container labels
