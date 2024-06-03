@@ -431,7 +431,7 @@ spec:
                       fieldPath: metadata.name
                 - name: OPERATOR_NAME
                   value: windows-machine-config-operator
-                image: quay.io/redhat-user-workloads/windows-machine-conf-tenant/windows-machine-config-operator/windows-machine-config-operator@sha256:75372e417323c6155f970b47f2b5b9a8cdf768e60c367a0aa2b9dc23449a95da 
+                image: quay.io/redhat-user-workloads/windows-machine-conf-tenant/windows-machine-config-operator/windows-machine-config-operator@sha256:9e259d2aa057f3fbddddf49bc2cbb00cfa26802585170e029facfb96ee05e7c9 
                 imagePullPolicy: IfNotPresent
                 name: manager
                 resources:
