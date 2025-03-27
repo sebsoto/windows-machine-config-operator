@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"io/ioutil"
+	"os"
+	"regexp"
 	"strings"
 )
 
@@ -281,6 +283,28 @@ func NewFileInfo(path string) (*FileInfo, error) {
 	}, nil
 }
 
+func SetPauseImage(pauseImage string) error {
+	conf, err := os.ReadFile(ContainerdConfPath)
+	if err != nil {
+		return err
+	}
+	newConf, err := replaceContainerdSandboxImage(string(conf), pauseImage)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(ContainerdConfPath, []byte(newConf), os.ModePerm)
+}
+
+func replaceContainerdSandboxImage(conf, pauseImage string) (string, error) {
+	r := regexp.MustCompile(`sandbox_image = "(.*)"`)
+	match := r.FindStringSubmatch(conf)
+	if len(match) != 2 {
+		return "", fmt.Errorf("could not find sandbox_image in containerd config")
+	}
+	return strings.ReplaceAll(conf, match[1], pauseImage), nil
+}
+
+// PopulateNetworkConfScript creates the .ps1 file responsible for CNI configuratio
 // PopulateNetworkConfScript creates the .ps1 file responsible for CNI configuration
 func PopulateNetworkConfScript(clusterCIDR, hnsNetworkName, hnsPSModulePath, cniConfigPath string) error {
 	scriptContents, err := generateNetworkConfigScript(clusterCIDR, hnsNetworkName,

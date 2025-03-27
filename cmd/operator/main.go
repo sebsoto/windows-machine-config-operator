@@ -63,10 +63,13 @@ func init() {
 func main() {
 	var debugLogging bool
 	var metricsAddr string
+	var pauseImageOverride string
 
 	flag.BoolVar(&debugLogging, "debugLogging", false, "Log debug messages")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0.0.0.0:9182",
 		"The address and port the metric endpoint binds to 0.0.0.0:9182")
+	flag.StringVar(&pauseImageOverride, "pause-image-override", "",
+		"Overrides the default pause image")
 
 	// Add flags registered by imported packages (e.g. glog and
 	// controller-runtime)
@@ -140,6 +143,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if pauseImageOverride != "" {
+		if err := payload.SetPauseImage(pauseImageOverride); err != nil {
+			setupLog.Error(err, "error overriding pause image")
+			os.Exit(1)
+		}
+	}
 	if err := payload.PopulateNetworkConfScript(clusterConfig.Network().GetServiceCIDR(), windows.OVNKubeOverlayNetwork,
 		windows.HNSPSModule, windows.CniConfDir+"\\cni.conf"); err != nil {
 		setupLog.Error(err, "unable to generate CNI config script")

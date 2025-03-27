@@ -194,3 +194,28 @@ Compare-And-Replace-Config -ConfigPath $kubeProxyConfigPath -NewConfigContent $k
 	require.NoError(t, err)
 	assert.Equal(t, string(expectedOut), actual)
 }
+
+func TestReplaceContainerdSandboxImage(t *testing.T) {
+	inputConfig := `
+[plugins]
+
+  [plugins."io.containerd.grpc.v1.cri"]
+    cdi_spec_dirs = []
+    sandbox_image = "mcr.microsoft.com/oss/kubernetes/pause:3.9"
+    tolerate_missing_hugetlb_controller = false
+    unset_seccomp_profile = ""
+`
+	pauseImage := "my-registry.test/pause:3.9"
+	expected := `
+[plugins]
+
+  [plugins."io.containerd.grpc.v1.cri"]
+    cdi_spec_dirs = []
+    sandbox_image = "my-registry.test/pause:3.9"
+    tolerate_missing_hugetlb_controller = false
+    unset_seccomp_profile = ""
+`
+	actual, err := replaceContainerdSandboxImage(inputConfig, pauseImage)
+	require.NoError(t, err)
+	assert.Equal(t, expected, actual)
+}
